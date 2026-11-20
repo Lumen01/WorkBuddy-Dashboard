@@ -31,4 +31,5 @@
 {"type": "span_end", "span": {"traceId": "trace_demo_002", "spanId": "span_fn_002_04_2269", "name": "Edit", "type": "function", "startedAt": "2026-10-10T23:40:06.435Z", "endedAt": "2026-10-10T23:40:08.119Z", "status": "ok"}}
 {"type": "span_start", "span": {"traceId": "trace_demo_002", "spanId": "span_fn_002_04_1817", "name": "Bash", "type": "function", "startedAt": "2026-10-10T23:40:06.487Z", "status": "running"}}
 {"type": "span_end", "span": {"traceId": "trace_demo_002", "spanId": "span_fn_002_04_1817", "name": "Bash", "type": "function", "startedAt": "2026-10-10T23:40:06.487Z", "endedAt": "2026-10-10T23:40:06.790Z", "status": "ok"}}
+{"type": "trace_update", "trace": {"traceId": "trace_demo_002", "sessionId": "demo-000"}}
 {"type": "trace_end", "trace": {"traceId": "trace_demo_002", "startedAt": "2026-10-10T23:39:26.002Z", "endedAt": "2026-10-10T23:40:15.090Z", "status": "error", "totalTokens": 161125}}
