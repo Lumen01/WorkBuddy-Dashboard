@@ -45,4 +45,5 @@
 {"type": "span_end", "span": {"traceId": "trace_demo_004", "spanId": "span_fn_004_08_3093", "name": "Write", "type": "function", "startedAt": "2026-11-05T01:10:22.348Z", "endedAt": "2026-11-05T01:10:24.683Z", "status": "ok"}}
 {"type": "span_start", "span": {"traceId": "trace_demo_004", "spanId": "span_fn_004_08_6518", "name": "Grep", "type": "function", "startedAt": "2026-11-05T01:10:22.500Z", "status": "running"}}
 {"type": "span_end", "span": {"traceId": "trace_demo_004", "spanId": "span_fn_004_08_6518", "name": "Grep", "type": "function", "startedAt": "2026-11-05T01:10:22.500Z", "endedAt": "2026-11-05T01:10:22.937Z", "status": "ok"}}
+{"type": "trace_update", "trace": {"traceId": "trace_demo_004", "sessionId": "demo-031"}}
 {"type": "trace_end", "trace": {"traceId": "trace_demo_004", "startedAt": "2026-11-05T01:09:26.002Z", "endedAt": "2026-11-05T01:10:28.817Z", "status": "error", "totalTokens": 279110}}
