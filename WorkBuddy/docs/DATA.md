@@ -16,7 +16,7 @@ WorkBuddy Dashboard 所有指标均从本机只读数据计算，本文说明每
 Token 数据来自 traces 中 `generation` 类型的 `span_end` 事件。每次生成调用的 `toolOutput`
 是一个 JSON 数组，元素含 `usage` 对象：
 
-- `total` = 所有 `usage.total_tokens` 之和
+- `total` = 所有有效用量的 `usage.total_tokens` 之和。单条记录缺少有效总量时，使用该条记录的输入量与输出量之和。
 - `input` = 所有 `usage.prompt_tokens` 之和
 - `output` = 所有 `usage.completion_tokens` 之和
 - `cached` = `usage.prompt_tokens_details.cached_tokens` 之和
@@ -25,6 +25,8 @@ Token 数据来自 traces 中 `generation` 类型的 `span_end` 事件。每次�
 - `peak` = 单次生成的最大 `total_tokens`
 - `avg` = `total / requests`（四舍五入）
 - `cache_hit_rate` = `cached / input × 100%`（保留 2 位小数）
+
+生成记录使用 `spanId` 去重。一条生成记录中的用量数组可能包含多个模型响应，每个有效用量计为一次请求。
 
 > 说明：`cached_tokens` 是 `prompt_tokens` 的子集（缓存命中的输入部分），
 > 因此缓存命中率以 input 为分母。`total_tokens` 通常已包含输入与输出，
@@ -50,12 +52,26 @@ Token 数据来自 traces 中 `generation` 类型的 `span_end` 事件。每次�
 
 ## 会话
 
-来自 `sessions` 表（排除已删除），左连接 `session_usage`：
+来自 `sessions` 表（排除已删除），按会话标识关联 `session_usage` 的最新记录：
 
 - 标题：`custom_title` 优先，否则 `title`
-- 上下文占用：`used / size`（百分比展示）
-- 消费积分：`credit_json` 中各模型积分之和
+- 上下文占用采用 `used / size`。已用量非负且容量大于零时，展示计算所得百分比。
+- 累计积分为 `credit_json` 中各模型积分之和。缺失或无效的积分记录在 JSON 中为 `null`，在 CSV 中为空单元格。有效的零积分记录显示为零。
 - 时间：毫秒时间戳转当地时间
+
+## 项目总览
+
+按 `sessions.cwd` 的完整绝对路径分组，以末级目录名显示项目，并附完整路径。工作区登记状态依据 `workspaces.path` 的完整路径精确匹配。同名目录按各自路径统计，未登记目录参与统计，无有效目录的会话单列。
+
+日期筛选按会话创建日期计算新增会话。从所选会话汇总状态、后台自动化会话数、会话登记模型、最近活动及累计积分。项目上下文占用为有效记录的已用量之和除以这些记录的容量之和。
+
+## 项目用量与导出
+
+追踪记录中的 `trace.sessionId` 与未删除会话的 `sessions.id` 精确关联。通过 `traceId` 归集生成和工具事件，会话标识可在事件之后出现。缺少关联、关联会话已删除或会话无有效目录的事件统一计入「未归属项目」。
+
+项目用量按事件的 `startedAt` 统计，沿用全局 Token、实际调用模型、工具和请求热力图的口径。请求、累计 Token 和工具调用分别计算归属覆盖率，分母是同一版本和日期范围的全局对应总量。分母为零时，覆盖率为空值。
+
+项目页与 CSV、JSON 导出使用同一统计接口。接口接受可省略的 `from` 和 `to` 参数，格式为 `YYYY-MM-DD`，含起止日期，按服务所在时区计算。「今日实时」和 Trace 文件总数、状态仍按其原有范围统计。
 
 ## 技能
 
