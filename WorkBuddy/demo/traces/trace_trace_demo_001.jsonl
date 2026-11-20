@@ -39,4 +39,4 @@
 {"type": "span_end", "span": {"traceId": "trace_demo_001", "spanId": "span_fn_001_05_3830", "name": "Bash", "type": "function", "startedAt": "2026-10-12T08:09:41.149Z", "endedAt": "2026-10-12T08:09:41.366Z", "status": "ok"}}
 {"type": "span_start", "span": {"traceId": "trace_demo_001", "spanId": "span_fn_001_05_2446", "name": "Bash", "type": "function", "startedAt": "2026-10-12T08:09:41.451Z", "status": "running"}}
 {"type": "span_end", "span": {"traceId": "trace_demo_001", "spanId": "span_fn_001_05_2446", "name": "Bash", "type": "function", "startedAt": "2026-10-12T08:09:41.451Z", "endedAt": "2026-10-12T08:09:42.498Z", "status": "ok"}}
-{"type": "trace_end", "trace": {"traceId": "trace_demo_001", "startedAt": "2026-10-12T08:09:26.002Z", "endedAt": "2026-10-12T08:09:46.384Z", "status": "ok", "totalTokens": 140075}}
+{"type": "trace_end", "trace": {"traceId": "trace_demo_001", "startedAt": "2026-10-12T08:09:26.002Z", "endedAt": "2026-10-12T08:09:46.384Z", "status": "ok", "totalTokens": 140075, "sessionId": "demo-001"}}
