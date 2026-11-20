@@ -117,4 +117,4 @@
 {"type": "span_end", "span": {"traceId": "trace_demo_005", "spanId": "span_fn_005_18_8780", "name": "DeferExecuteTool", "type": "function", "startedAt": "2026-10-24T09:41:38.403Z", "endedAt": "2026-10-24T09:41:40.247Z", "status": "ok"}}
 {"type": "span_start", "span": {"traceId": "trace_demo_005", "spanId": "span_fn_005_18_5476", "name": "Edit", "type": "function", "startedAt": "2026-10-24T09:41:38.387Z", "status": "running"}}
 {"type": "span_end", "span": {"traceId": "trace_demo_005", "spanId": "span_fn_005_18_5476", "name": "Edit", "type": "function", "startedAt": "2026-10-24T09:41:38.387Z", "endedAt": "2026-10-24T09:41:39.029Z", "status": "ok"}}
-{"type": "trace_end", "trace": {"traceId": "trace_demo_005", "startedAt": "2026-10-24T09:40:26.002Z", "endedAt": "2026-10-24T09:41:43.303Z", "status": "error", "totalTokens": 432724}}
+{"type": "trace_end", "trace": {"traceId": "trace_demo_005", "startedAt": "2026-10-24T09:40:26.002Z", "endedAt": "2026-10-24T09:41:43.303Z", "status": "error", "totalTokens": 432724, "sessionId": "demo-004"}}
