@@ -212,12 +212,12 @@
   .legend-inline i{width:8px;height:8px;border-radius:3px;display:inline-block;}
 
   /* 热力图 */
-  #heat{display:grid;grid-template-columns:34px repeat(24,minmax(0,1fr));gap:3px;font-size:10px;color:var(--muted);}
-  #heat .rl{display:flex;align-items:center;justify-content:flex-end;padding-right:4px;}
-  #heat .cl{text-align:center;padding-bottom:2px;white-space:nowrap;}
-  .cell{height:17px;border-radius:4px;background:#EDE9FF;transition:transform .1s;}
-  html.dark .cell{background:#241C46;}
-  .cell:hover{transform:scale(1.18);outline:1px solid var(--ink);}
+  .heat-grid{display:grid;grid-template-columns:34px repeat(24,minmax(0,1fr));gap:3px;font-size:10px;color:var(--muted);}
+  .heat-grid .rl{display:flex;align-items:center;justify-content:flex-end;padding-right:4px;}
+  .heat-grid .cl{text-align:center;padding-bottom:2px;white-space:nowrap;}
+  .heat-grid .cell{height:17px;border-radius:4px;background:#EDE9FF;transition:transform .1s;}
+  html.dark .heat-grid .cell{background:#241C46;}
+  .heat-grid .cell:hover{transform:scale(1.18);outline:1px solid var(--ink);}
   .heat-scale{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);margin-top:12px;}
   .heat-scale i{width:16px;height:9px;border-radius:2px;display:inline-block;}
 
@@ -228,6 +228,39 @@
     color:var(--ink);border-radius:var(--pill);padding:9px 15px;font-size:12px;font-family:inherit;outline:none;
   }
   input#q:focus{border-color:var(--lime);background:var(--card);}
+  .project-card + .project-card{margin-top:14px;}
+  .project-filter{display:flex;gap:8px 12px;align-items:center;flex-wrap:wrap;font-size:12px;}
+  .project-filter label{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .project-filter input,.project-filter select{
+    border:1px solid var(--line);background:var(--card);color:var(--ink);
+    border-radius:10px;padding:6px 9px;font:inherit;
+  }
+  .project-note{font-size:12px;color:var(--muted);overflow-wrap:anywhere;}
+  .project-error{font-size:12px;color:var(--danger);}
+  .project-name{max-width:300px;min-width:200px;}
+  .project-path{display:block;overflow-wrap:anywhere;color:var(--muted);font-size:11px;}
+  .project-link{
+    font:inherit;font-weight:600;text-align:left;overflow-wrap:anywhere;
+    color:var(--ink);background:transparent;border:0;padding:0;cursor:pointer;
+    text-decoration:underline;text-underline-offset:3px;
+  }
+  .project-link:hover,.project-link[aria-pressed="true"]{color:var(--lime-deep);}
+  .project-link:focus-visible{outline:2px solid var(--lime);outline-offset:4px;}
+  .project-table td.c-date{font-variant-numeric:tabular-nums;}
+  .project-table thead th,.usage-breakdown thead th{cursor:default;}
+  .project-coverage{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;
+    margin:0 0 12px;
+  }
+  .project-coverage div{padding:8px 12px;background:var(--soft);border-radius:12px;}
+  .project-coverage dt{font-size:11px;color:var(--muted);}
+  .project-coverage dd{margin:0;font-size:12px;font-variant-numeric:tabular-nums;}
+  .usage-detail{margin-top:16px;}
+  .usage-detail h4{margin:12px 0 6px;font-size:12px;}
+  .usage-breakdown table.data{min-width:0;}
+  .usage-breakdown td{overflow-wrap:anywhere;}
+  .usage-breakdown .tablebox{max-height:250px;}
+  .usage-detail .heat-grid{margin-top:4px;}
   .count-chip{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:var(--pill);padding:5px 12px;}
   .tablebox{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:16px;-webkit-overflow-scrolling:touch;}
   table.data{width:100%;min-width:700px;border-collapse:collapse;font-size:12px;}
@@ -362,7 +395,8 @@
     <a href="#overview" class="on"><span class="dot"></span>概览</a>
     <a href="#trend"><span class="dot"></span>趋势</a>
     <a href="#models"><span class="dot"></span>模型与工具</a>
-    <a href="#projects"><span class="dot"></span>会话</a>
+    <a href="#projects"><span class="dot"></span>项目</a>
+    <a href="#sessions"><span class="dot"></span>会话</a>
     <a href="#output"><span class="dot"></span>技能与系统</a>
   </nav>
   <div class="rail-foot">
@@ -459,7 +493,7 @@
       <div class="card">
         <h3>活跃热力图</h3>
         <div class="sub" id="heatSub">—</div>
-        <div id="heat"></div>
+        <div id="heat" class="heat-grid"></div>
         <div class="heat-scale">
           <span>少</span>
           <i style="background:#EDE9FF"></i><i style="background:#D6CCFF"></i><i style="background:#846BFF"></i><i style="background:#6A4FE0"></i><i style="background:#4A3399"></i>
@@ -470,10 +504,83 @@
   </section>
 
   <section id="projects">
-    <div class="sec-head"><h2>会话</h2><span class="hint">点击表头切换排序 · 输入关键词搜索</span></div>
+    <div class="sec-head"><h2>项目</h2><span class="hint" id="projectRangeLabel">全部时间</span></div>
+    <div class="card project-card">
+      <h3>项目总览</h3>
+      <div class="sub">按会话创建日期筛选，积分为所选会话的累计值。</div>
+      <form id="projectFilters" class="tools-line project-filter" aria-label="项目日期筛选">
+        <label>开始日期 <input type="date" id="projectFrom"></label>
+        <label>结束日期 <input type="date" id="projectTo"></label>
+        <button class="btn" type="submit">应用</button>
+        <button class="btn" type="button" id="projectReset">全部时间</button>
+        <span id="projectRangeError" class="project-error" role="status"></span>
+      </form>
+      <div class="tools-line project-filter">
+        <label>总览排序
+          <select id="projectSort">
+            <option value="sessions">会话数</option>
+            <option value="credits">累计积分</option>
+            <option value="last_activity">最近活动</option>
+          </select>
+        </label>
+        <span class="project-note" id="projectCount"></span>
+      </div>
+      <div class="tablebox" tabindex="0" role="region" aria-label="项目总览表格">
+        <table class="data project-table" id="projectTable">
+          <thead><tr>
+            <th scope="col">项目</th><th scope="col" class="r">会话数</th><th scope="col">状态</th>
+            <th scope="col" class="r">后台自动化</th><th scope="col">最近活动</th><th scope="col">会话登记模型</th>
+            <th scope="col" class="r" title="有效会话的已用上下文之和除以容量之和">上下文占用</th>
+            <th scope="col" class="r">累计积分</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card project-card">
+      <h3>项目用量</h3>
+      <div class="sub">按请求和工具事件的开始日期筛选。归属覆盖率以成功匹配工作目录的用量为分子。</div>
+      <dl class="project-coverage" id="projectCoverage"></dl>
+      <div class="tools-line project-filter">
+        <label>用量排序
+          <select id="usageSort">
+            <option value="total">累计 Token</option>
+            <option value="requests">请求数</option>
+            <option value="tool_calls">工具调用数</option>
+          </select>
+        </label>
+      </div>
+      <div class="tablebox" tabindex="0" role="region" aria-label="项目用量表格">
+        <table class="data project-table" id="usageTable">
+          <thead><tr>
+            <th scope="col">项目</th><th scope="col" class="r">累计 Token</th><th scope="col" class="r">输入</th>
+            <th scope="col" class="r">输出</th><th scope="col" class="r">缓存命中率</th>
+            <th scope="col" class="r">请求数</th><th scope="col" class="r">工具调用数</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="usage-detail" id="usageDetail" hidden>
+        <h3 id="usageDetailTitle"></h3>
+        <div class="tools-line">
+          <div class="project-note" id="usageDetailPath"></div>
+          <button class="btn" id="usageSessions" type="button">查看项目会话</button>
+        </div>
+        <div class="grid-2b usage-breakdown" id="usageBreakdown"></div>
+        <h4>请求热力图</h4>
+        <div class="sub" id="projectHeatSub"></div>
+        <div class="heat-grid" id="projectHeat"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sessions">
+    <div class="sec-head"><h2 id="sessionHeading" tabindex="-1">会话明细</h2><span class="hint" id="sessionRangeLabel">全部时间</span></div>
     <div class="card">
       <div class="tools-line">
-        <input id="q" type="search" placeholder="搜索会话标题关键词…" autocomplete="off">
+        <span class="project-note" id="sessionScope">全部项目</span>
+        <button class="btn" id="clearProject" type="button" hidden>查看全部会话</button>
+        <input id="q" type="search" aria-label="会话标题" placeholder="搜索会话标题…" autocomplete="off">
         <span class="count-chip num" id="convCount">—</span>
       </div>
       <div class="tablebox">
@@ -481,11 +588,13 @@
           <thead>
             <tr>
               <th data-key="title" class="c-title">会话标题</th>
-              <th data-key="model" class="c-date">模型</th>
+              <th data-key="model" class="c-date">会话登记模型</th>
               <th data-key="status">状态</th>
-              <th data-key="used" class="r c-num">上下文占用<span class="arrow"></span></th>
-              <th data-key="credit" class="r c-token">消费积分<span class="arrow"></span></th>
-              <th data-key="created" class="c-date">最近活动<span class="arrow"></span></th>
+              <th data-key="background">后台自动化</th>
+              <th data-key="context_percent" class="r c-num">上下文占用<span class="arrow"></span></th>
+              <th data-key="credit" class="r c-token">累计积分<span class="arrow"></span></th>
+              <th data-key="created" class="c-date">创建时间<span class="arrow"></span></th>
+              <th data-key="last_activity" class="c-date">最近活动<span class="arrow"></span></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -541,6 +650,8 @@
         <label class="part"><input type="checkbox" value="models" checked><b>模型分布</b></label>
         <label class="part"><input type="checkbox" value="tools" checked><b>工具调用</b></label>
         <label class="part"><input type="checkbox" value="heatmap" checked><b>活跃热力图</b></label>
+        <label class="part"><input type="checkbox" value="projects" checked><b>项目总览</b></label>
+        <label class="part"><input type="checkbox" value="project_usage" checked><b>项目用量与归属覆盖率</b></label>
         <label class="part"><input type="checkbox" value="conversations" checked><b>会话记录</b></label>
         <label class="part"><input type="checkbox" value="skills" checked><b>技能库</b></label>
         <label class="part"><input type="checkbox" value="workspaces" checked><b>工作区</b></label>
@@ -549,7 +660,7 @@
     </div>
 
     <div class="dgroup">
-      <div class="lbl"><span>导出时间段</span><span class="mini dim">筛选 Token 消耗 / 每日·月度趋势 / 会话记录</span></div>
+      <div class="lbl"><span>导出时间段</span><span class="mini dim">按会话创建日期和用量事件日期筛选</span></div>
       <div class="ranges" id="expRanges">
         <label class="rng"><input type="radio" name="expRange" value="all" checked><b>全部时间</b></label>
         <label class="rng"><input type="radio" name="expRange" value="7d"><b>近 7 天</b></label>
@@ -610,7 +721,7 @@ function hhmmss(){
 }
 function el(id){ return document.getElementById(id); }
 
-var WEEK = ['周日','周一','周二','周三','周四','周五','周六'];
+var WEEK = ['周一','周二','周三','周四','周五','周六','周日'];
 
 /* ---------------- 访问口令 ---------------- */
 var TOKEN_KEY = 'evanworkbuddy_token';
@@ -657,6 +768,8 @@ el('edSwitch').addEventListener('click', function(ev){
   var ed = b.getAttribute('data-ed');
   if (ed === EDITION) return;
   EDITION = ed;
+  state.sessionProject = null;
+  state.usagePath = undefined;
   try{ localStorage.setItem(EDITION_KEY, ed); }catch(e){}
   paintEdition();
   refresh(true);
@@ -679,7 +792,10 @@ el('btnTheme').addEventListener('click', function(){
 });
 
 /* ---------------- 状态 ---------------- */
-var state = { data:null, sort:{key:'used', desc:true}, query:'' };
+var state = {
+  data:null, projectData:null, range:{from:'', to:''},
+  sessionProject:null, usagePath:undefined, sort:{key:'context_percent', desc:true}, query:''
+};
 
 /* ---------------- 概览 KPI ---------------- */
 function renderKpis(d){
@@ -958,9 +1074,8 @@ function renderSessionStatus(agents){
 
 /* ---------------- 热力图 ---------------- */
 var HEAT_STEPS = ['#EDE9FF','#D6CCFF','#846BFF','#6A4FE0','#4A3399'];
-function renderHeat(heat){
-  var box = el('heat');
-  if (!heat || !heat.length){ box.innerHTML = '<div class="placeholder">暂无数据</div>'; return; }
+function renderHeat(heat, boxId, subId){
+  var box = el(boxId);
   var max = 1, peak = {w:0,h:0,v:0}, sum = 0;
   heat.forEach(function(row, w){
     row.forEach(function(v, h){
@@ -969,6 +1084,11 @@ function renderHeat(heat){
       if (v > peak.v) peak = { w:w, h:h, v:v };
     });
   });
+  if (!sum){
+    box.innerHTML = '';
+    el(subId).textContent = '暂无带有效时间的请求';
+    return;
+  }
   var html = '<div></div>';
   for (var h=0; h<24; h++) html += '<div class="cl">' + (h%3===0 ? (h<10?'0':'')+h : '') + '</div>';
   heat.forEach(function(row, w){
@@ -981,14 +1101,14 @@ function renderHeat(heat){
     });
   });
   box.innerHTML = html;
-  el('heatSub').innerHTML = '累计 ' + fmtInt(sum) + ' 次生成 · 峰值 ' + esc(WEEK[peak.w]) + ' ' + (peak.h<10?'0':'') + peak.h + ':00（<b>' + fmtInt(peak.v) + '</b> 次）';
+  el(subId).innerHTML = '累计 ' + fmtInt(sum) + ' 次生成 · 峰值 ' + esc(WEEK[peak.w]) + ' ' + (peak.h<10?'0':'') + peak.h + ':00（<b>' + fmtInt(peak.v) + '</b> 次）';
 }
 
 /* 热力图 & 通用悬浮提示 */
 (function heatTip(){
   var tip = el('tip');
   document.addEventListener('mouseover', function(ev){
-    var cell = ev.target.closest ? ev.target.closest('.cell') : null;
+    var cell = ev.target.closest ? ev.target.closest('.heat-grid .cell') : null;
     if (!cell) return;
     tip.textContent = cell.getAttribute('data-tip') || '';
     tip.style.color = '';
@@ -999,53 +1119,199 @@ function renderHeat(heat){
     tip.style.position = 'fixed';
   });
   document.addEventListener('mouseout', function(ev){
-    var cell = ev.target.closest ? ev.target.closest('.cell') : null;
+    var cell = ev.target.closest ? ev.target.closest('.heat-grid .cell') : null;
     if (!cell) return;
     tip.style.opacity = '0';
     tip.style.position = 'absolute';
   });
 })();
 
+/* ---------------- 项目 ---------------- */
+var STATUS_LABELS = new Map([
+  ['completed','完成'], ['ok','完成'], ['error','错误'], ['failed','失败'],
+  ['cancelled','取消'], ['working','进行中'], ['in_progress','进行中'], ['unknown','未知']
+]);
+function dateRangeLabel(range){
+  return range.from || range.to ? (range.from || '不限') + ' 至 ' + (range.to || '不限') : '全部时间';
+}
+function countLabel(counts, labels){
+  return Object.entries(counts).sort(function(a,b){ return b[1] - a[1]; })
+    .map(function(entry){
+      return esc((labels && labels.get(entry[0])) || entry[0]) + ' ' + fmtInt(entry[1]);
+    }).join(' · ');
+}
+function compareValues(a, b, desc){
+  if (a == null || b == null) return (a == null ? 1 : 0) - (b == null ? 1 : 0);
+  var order = typeof a === 'string' ? a.localeCompare(b) : Number(a) - Number(b);
+  return desc ? -order : order;
+}
+function projectCell(project, index, selected){
+  var workspace = project.path === null ? '' : (project.workspace_registered ? '已登记工作区' : '未登记工作区');
+  return '<td class="project-name"><button class="project-link" type="button" data-index="' + index
+    + '" aria-pressed="' + selected + '">' + esc(project.name) + '</button>'
+    + (project.path === null ? '' : '<span class="project-path">' + esc(project.path)
+       + '</span><span class="project-path">' + workspace + '</span>') + '</td>';
+}
+function showProjectSessions(project){
+  state.sessionProject = project;
+  state.query = '';
+  el('q').value = '';
+  renderProjectOverview(state.projectData);
+  renderConvs(state.projectData);
+  el('sessionHeading').focus({preventScroll:true});
+  el('sessions').scrollIntoView({block:'start'});
+}
+function renderProjectOverview(d){
+  var sortKey = el('projectSort').value;
+  var projects = d.projects.slice().sort(function(a,b){
+    return compareValues(a[sortKey], b[sortKey], true);
+  });
+  var tbody = el('projectTable').tBodies[0];
+  tbody.innerHTML = projects.map(function(p, i){
+    var ctx = p.context_percent === null ? '—' : p.context_percent.toFixed(2) + '%';
+    var credit = p.credits === null ? '—' : p.credits.toFixed(2);
+    var selected = state.sessionProject !== null && state.sessionProject.path === p.path;
+    return '<tr>' + projectCell(p, i, selected)
+      + '<td class="r">' + fmtInt(p.sessions) + '</td>'
+      + '<td>' + countLabel(p.statuses, STATUS_LABELS) + '</td>'
+      + '<td class="r">' + fmtInt(p.background_sessions) + '</td>'
+      + '<td class="c-date">' + esc(p.last_activity || '—') + '</td>'
+      + '<td>' + countLabel(p.session_models) + '</td>'
+      + '<td class="r" title="有效记录 ' + p.context_sessions + ' / ' + p.sessions + ' 个会话">' + ctx + '</td>'
+      + '<td class="r" title="有效记录 ' + p.credit_sessions + ' / ' + p.sessions + ' 个会话">' + credit + '</td></tr>';
+  }).join('') || '<tr><td colspan="8"><div class="placeholder">所选日期无新增会话</div></td></tr>';
+  tbody.onclick = function(e){
+    var button = e.target.closest('[data-index]');
+    if (button) showProjectSessions(projects[Number(button.dataset.index)]);
+  };
+  el('projectCount').textContent = fmtInt(projects.filter(function(p){ return p.path !== null; }).length)
+    + ' 个项目 · ' + fmtInt(d.counts.sessions) + ' 个会话';
+}
+function renderUsageDetail(p){
+  el('usageDetail').hidden = !p;
+  if (!p) return;
+  el('usageDetailTitle').textContent = p.name + ' · 用量明细';
+  el('usageDetailPath').textContent = p.path || '包括追踪关联缺失、会话已删除或工作目录缺失的事件。';
+  el('usageSessions').hidden = p.path === null;
+  el('usageSessions').onclick = function(){ showProjectSessions(p); };
+  var models = p.models.map(function(m){
+    return '<tr><td>' + esc(m.name) + '</td><td class="r">' + fmtInt(m.requests)
+      + '</td><td class="r">' + fmtInt(m.tokens) + '</td></tr>';
+  }).join('');
+  var tools = p.tools.map(function(t){
+    return '<tr><td>' + esc(t.name) + '</td><td class="r">' + fmtInt(t.count) + '</td></tr>';
+  }).join('');
+  el('usageBreakdown').innerHTML = '<div><h4>实际调用模型</h4>' + (models
+    ? '<div class="tablebox" tabindex="0" role="region" aria-label="实际调用模型表格"><table class="data"><thead><tr>'
+      + '<th scope="col">模型</th><th class="r" scope="col">请求数</th><th class="r" scope="col">Token</th></tr></thead><tbody>'
+      + models + '</tbody></table></div>' : '<div class="project-note">暂无模型请求</div>')
+    + '</div><div><h4>工具调用</h4>' + (tools
+    ? '<div class="tablebox" tabindex="0" role="region" aria-label="工具调用表格"><table class="data"><thead><tr>'
+      + '<th scope="col">工具</th><th class="r" scope="col">调用数</th></tr></thead><tbody>'
+      + tools + '</tbody></table></div>' : '<div class="project-note">暂无工具调用</div>') + '</div>';
+  renderHeat(p.heatmap, 'projectHeat', 'projectHeatSub');
+}
+function renderProjectUsage(d){
+  el('projectCoverage').innerHTML = [['requests','请求归属率'],['tokens','Token 归属率'],['tool_calls','工具调用归属率']]
+    .map(function(item){
+      var c = d.project_coverage[item[0]];
+      return '<div><dt>' + item[1] + '</dt><dd><strong>' + (c.percent === null ? '—' : c.percent.toFixed(2) + '%')
+        + '</strong> · ' + fmtInt(c.attributed) + ' / ' + fmtInt(c.total) + '</dd></div>';
+    }).join('');
+  var key = el('usageSort').value;
+  var projects = d.project_usage.slice().sort(function(a,b){
+    if (a.path === null || b.path === null) return Number(a.path === null) - Number(b.path === null);
+    return key === 'tool_calls' ? b.tool_calls - a.tool_calls : b.tokens[key] - a.tokens[key];
+  });
+  var selected = projects.find(function(p){ return p.path === state.usagePath; }) || projects[0];
+  state.usagePath = selected.path;
+  var tbody = el('usageTable').tBodies[0];
+  tbody.innerHTML = projects.map(function(p, i){
+    var t = p.tokens;
+    return '<tr>' + projectCell(p, i, p.path === state.usagePath)
+      + '<td class="r">' + fmtInt(t.total) + '</td><td class="r">' + fmtInt(t.input) + '</td>'
+      + '<td class="r">' + fmtInt(t.output) + '</td><td class="r">' + t.cache_hit_rate.toFixed(2) + '%</td>'
+      + '<td class="r">' + fmtInt(t.requests) + '</td><td class="r">' + fmtInt(p.tool_calls) + '</td></tr>';
+  }).join('');
+  tbody.onclick = function(e){
+    var button = e.target.closest('[data-index]');
+    if (!button) return;
+    var project = projects[Number(button.dataset.index)];
+    state.usagePath = project.path;
+    tbody.querySelector('[aria-pressed="true"]').setAttribute('aria-pressed', 'false');
+    button.setAttribute('aria-pressed', 'true');
+    renderUsageDetail(project);
+    el('usageDetail').scrollIntoView({block:'nearest'});
+  };
+  renderUsageDetail(selected);
+}
+function applyProjectRange(from, to){
+  if (from && to && from > to){
+    el('projectRangeError').textContent = '开始日期不能晚于结束日期';
+    return;
+  }
+  state.range = {from:from, to:to};
+  el('projectRangeError').textContent = '正在读取统计数据';
+  refresh(true);
+}
+el('projectFilters').addEventListener('submit', function(e){
+  e.preventDefault();
+  applyProjectRange(el('projectFrom').value, el('projectTo').value);
+});
+el('projectReset').addEventListener('click', function(){
+  el('projectFrom').value = '';
+  el('projectTo').value = '';
+  applyProjectRange('', '');
+});
+el('projectSort').addEventListener('change', function(){
+  if (state.projectData) renderProjectOverview(state.projectData);
+});
+el('usageSort').addEventListener('change', function(){
+  if (state.projectData) renderProjectUsage(state.projectData);
+});
+el('clearProject').addEventListener('click', function(){ showProjectSessions(null); });
+
 /* ---------------- 会话表格 ---------------- */
 function renderConvs(d){
-  var list = (d.conversations || []).slice();
+  var project = state.sessionProject;
+  var sessions = project ? d.conversations.filter(function(c){ return c.project_path === project.path; }) : d.conversations;
+  var list = sessions.slice();
+  el('sessionScope').textContent = project ? project.name + (project.path ? ' · ' + project.path : '') : '全部项目';
+  el('clearProject').hidden = !project;
   var q = (state.query || '').trim().toLowerCase();
   if (q) list = list.filter(function(c){ return String(c.title || '').toLowerCase().indexOf(q) >= 0; });
   var key = state.sort.key, desc = state.sort.desc;
-  list.sort(function(a,b){
-    var va = a[key], vb = b[key];
-    if (key === 'title' || key === 'model' || key === 'status' || key === 'created'){
-      va = String(va || ''); vb = String(vb || '');
-      return desc ? (va < vb ? 1 : va > vb ? -1 : 0) : (va > vb ? 1 : va < vb ? -1 : 0);
-    }
-    return desc ? N(vb) - N(va) : N(va) - N(vb);
-  });
+  list.sort(function(a,b){ return compareValues(a[key], b[key], desc); });
   var tb = document.querySelector('#convTable tbody');
   tb.innerHTML = list.map(function(c){
     var st = String(c.status || 'unknown');
-    var pctUsed = c.size ? Math.min(100, N(c.used)/N(c.size)*100) : 0;
+    var ctx = c.context_percent === null ? '—' : c.context_percent.toFixed(2) + '%';
+    var ctxTitle = c.context_percent === null ? '' : fmtInt(c.used) + ' / ' + fmtInt(c.size);
+    var label = STATUS_LABELS.get(st) || st;
     return '<tr>'
       + '<td><div class="celltitle"><span class="sdot ' + esc(st) + '" title="' + esc(st) + '"></span>'
       + '<span class="txt" title="' + esc(c.title) + '">' + esc(c.title) + '</span></div></td>'
       + '<td style="color:var(--muted);white-space:nowrap">' + esc(c.model || '—') + '</td>'
-      + '<td style="white-space:nowrap"><span class="sdot ' + esc(st) + '" style="display:inline-block;vertical-align:middle;margin-right:5px"></span>' + esc(st) + '</td>'
-      + '<td class="r">' + pctUsed.toFixed(0) + '%</td>'
-      + '<td class="r">' + (N(c.credit) ? Number(c.credit).toFixed(2) : '—') + '</td>'
-      + '<td style="color:var(--muted);white-space:nowrap">' + esc(c.last_activity || c.created || '—') + '</td>'
+      + '<td style="white-space:nowrap"><span class="sdot ' + esc(st) + '" style="display:inline-block;vertical-align:middle;margin-right:5px"></span>' + esc(label) + '</td>'
+      + '<td>' + (c.background ? '是' : '—') + '</td>'
+      + '<td class="r" title="' + ctxTitle + '">' + ctx + '</td>'
+      + '<td class="r">' + (c.credit === null ? '—' : c.credit.toFixed(2)) + '</td>'
+      + '<td class="c-date">' + esc(c.created || '—') + '</td>'
+      + '<td class="c-date">' + esc(c.last_activity || '—') + '</td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="6"><div class="placeholder">没有匹配的会话</div></td></tr>';
+  }).join('') || '<tr><td colspan="8"><div class="placeholder">没有匹配的会话</div></td></tr>';
 
   document.querySelectorAll('#convTable thead th').forEach(function(th){
     var arrow = th.querySelector('.arrow');
     if (!arrow) return;
     arrow.textContent = (th.getAttribute('data-key') === key) ? (desc ? '▼' : '▲') : '';
   });
-  el('convCount').textContent = list.length + ' / ' + (d.conversations || []).length + ' 个会话';
+  el('convCount').textContent = list.length + ' / ' + sessions.length + ' 个会话';
 }
 
 el('q').addEventListener('input', function(e){
   state.query = e.target.value;
-  if (state.data) renderConvs(state.data);
+  if (state.projectData) renderConvs(state.projectData);
 });
 document.querySelectorAll('#convTable thead th').forEach(function(th){
   th.addEventListener('click', function(){
@@ -1053,7 +1319,7 @@ document.querySelectorAll('#convTable thead th').forEach(function(th){
     if (!k) return;
     if (state.sort.key === k) state.sort.desc = !state.sort.desc;
     else state.sort = { key:k, desc:true };
-    if (state.data) renderConvs(state.data);
+    if (state.projectData) renderConvs(state.projectData);
   });
 });
 
@@ -1158,8 +1424,13 @@ function renderAll(d){
   renderModels(d.models || []);
   renderTools(d.tools || []);
   renderSessionStatus(sessionStatusGroups(d.conversations));
-  renderHeat(d.heatmap || []);
-  renderConvs(d);
+  renderHeat(d.heatmap, 'heat', 'heatSub');
+  var projectData = state.projectData;
+  el('projectRangeLabel').textContent = dateRangeLabel(projectData.range);
+  el('sessionRangeLabel').textContent = dateRangeLabel(projectData.range);
+  renderProjectOverview(projectData);
+  renderProjectUsage(projectData);
+  renderConvs(projectData);
   renderSkillTypes(d);
   renderRecentConvs(d);
   renderSkillSources(d);
@@ -1180,24 +1451,32 @@ window.addEventListener('resize', function(){
     fitKpiValues();
   }, 160);
 });
+function fetchStats(edition, range){
+  var url = '/api/stats?edition=' + edition + tokenQS();
+  if (range && range.from) url += '&from=' + encodeURIComponent(range.from);
+  if (range && range.to) url += '&to=' + encodeURIComponent(range.to);
+  return fetch(url, {cache:'no-store'}).then(function(r){
+    if (r.status === 401) throw new Error('需要访问口令');
+    return r.json();
+  }).then(function(d){
+    if (!d || d.error) throw new Error(d && d.error ? d.error : '接口返回错误');
+    return d;
+  });
+}
 function refresh(force){
   if (busy && !force) return;
   busy = true;
   var seq = ++reqSeq;
+  var range = state.range;
   var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
-  fetch('/api/stats?_=' + Date.now() + '&edition=' + EDITION + tokenQS(), { cache:'no-store' })
-    .then(function(r){
-      if (r.status === 401){ throw new Error('401 需要访问口令，请用 /?token=你的口令 打开'); }
-      return r.json();
-    })
-    .then(function(d){
+  Promise.all([fetchStats(EDITION), range.from || range.to ? fetchStats(EDITION, range) : null])
+    .then(function(results){
       if (seq !== reqSeq) return;
+      var d = results[0];
+      state.projectData = results[1] || d;
+      el('projectRangeError').textContent = '';
       var t1 = (window.performance && performance.now) ? performance.now() : Date.now();
       var latency = t1 - t0;
-      if (!d || d.error){
-        showError(d && d.error ? String(d.error) : '接口返回错误');
-        return;
-      }
       state.data = d;
       if (d.meta && d.meta.edition){ EDITION = d.meta.edition; }
       paintEdition();
@@ -1209,7 +1488,8 @@ function refresh(force){
     })
     .catch(function(err){
       if (seq !== reqSeq) return;
-      showError('无法连接本地服务（' + (err && err.message ? err.message : 'network error') + '）');
+      if (range.from || range.to) el('projectRangeError').textContent = '日期筛选失败，页面保留上次结果。';
+      showError('无法读取统计数据（' + err.message + '）');
     })
     .then(function(){ if (seq === reqSeq) busy = false; });
 }
@@ -1226,7 +1506,7 @@ document.addEventListener('visibilitychange', function(){
 });
 
 /* ---------------- 导航高亮 ---------------- */
-var sections = ['overview','trend','models','projects','output'];
+var sections = ['overview','trend','models','projects','sessions','output'];
 if ('IntersectionObserver' in window){
   var io = new IntersectionObserver(function(entries){
     entries.forEach(function(en){
@@ -1273,7 +1553,7 @@ document.querySelectorAll('#nav a').forEach(function(a){
 (function(){
   // 逻辑分区 -> 数据字段（可多字段合并为一组）
   var PARTS = {
-    token:         { title:'Token 消耗', fields:['tokens'], ranged:true },
+    token:         { title:'Token 消耗', fields:['tokens'] },
     overview:      { title:'核心指标',   fields:['counts'] },
     today:         { title:'今日实时',   fields:['today'] },
     daily:         { title:'每日趋势',   fields:['daily'] },
@@ -1281,6 +1561,8 @@ document.querySelectorAll('#nav a').forEach(function(a){
     models:        { title:'模型分布',   fields:['models'] },
     tools:         { title:'工具调用',   fields:['tools'] },
     heatmap:       { title:'活跃热力图', fields:['heatmap'] },
+    projects:      { title:'项目总览',   fields:['projects'] },
+    project_usage: { title:'项目用量',   fields:['project_usage','project_coverage'] },
     conversations: { title:'会话记录',   fields:['conversations'] },
     skills:        { title:'技能库',     fields:['skills','skill_stats'] },
     workspaces:    { title:'工作区',     fields:['workspaces'] },
@@ -1296,7 +1578,18 @@ document.querySelectorAll('#nav a').forEach(function(a){
     clearTimeout(toast._t);
     toast._t = setTimeout(function(){ t.classList.remove('show'); }, 2600);
   }
-  function open(){ if (!state.data){ toast('数据尚未加载，请稍候'); return; } mask.classList.add('open'); }
+  function open(){
+    if (!state.data || state.data.meta.edition !== EDITION){
+      toast('数据尚未加载，请稍候');
+      return;
+    }
+    var range = state.projectData.range;
+    document.querySelector('input[name=expRange][value=' + (range.from || range.to ? 'custom' : 'all') + ']').checked = true;
+    el('expDateFrom').value = range.from;
+    el('expDateTo').value = range.to;
+    syncCustomRange();
+    mask.classList.add('open');
+  }
   function close(){ mask.classList.remove('open'); }
 
   el('btnExport').addEventListener('click', open);
@@ -1331,80 +1624,15 @@ document.querySelectorAll('#nav a').forEach(function(a){
     var p = function(x){ return (x<10?'0':'')+x; };
     return dt.getFullYear()+'-'+p(dt.getMonth()+1)+'-'+p(dt.getDate());
   }
-  // 解析选择的时间段 -> {start, end, label}；全部时间返回 null
   function resolveRange(){
-    var mode = (document.querySelector('input[name=expRange]:checked')||{}).value || 'all';
-    var now = new Date(), end = ymd(now), start = '';
-    if (mode === 'all') return null;
-    if (mode === '7d' || mode === '30d'){
-      var n = (mode === '7d') ? 6 : 29;
-      var d = new Date(now); d.setDate(d.getDate() - n); start = ymd(d);
-    } else if (mode === 'month'){
-      start = ymd(new Date(now.getFullYear(), now.getMonth(), 1));
-    } else if (mode === 'custom'){
-      start = el('expDateFrom').value || '';
-      end   = el('expDateTo').value || '';
-      if (!start && !end) return null;
-    }
-    var label = (start || '…') + ' ~ ' + (end || '…');
-    return { start:start, end:end, label:label, mode:mode };
-  }
-  // 把日期字符串（YYYY-MM-DD 前缀）限制在时间段内
-  function inRange(dateStr, range){
-    if (!range) return true;
-    if (!dateStr) return false;
-    var day = String(dateStr).slice(0, 10);
-    if (range.start && day < range.start) return false;
-    if (range.end && day > range.end) return false;
-    return true;
-  }
-  // 按时间段重新聚合 Token 消耗（基于每日数据求和，比例推算 input/reasoning）
-  function rangeTokens(d, range){
-    var t = d.tokens || {};
-    var rows = (d.daily || []).filter(function(x){ return inRange(x.day, range); });
-    var total=0, requests=0, output=0, cached=0;
-    rows.forEach(function(x){
-      total += (+x.tokens)||0; requests += (+x.requests)||0;
-      output += (+x.output)||0; cached += (+x.cached)||0;
-    });
-    var gTotal = (+t.total)||0;
-    var ratio = gTotal ? (total / gTotal) : 0;
-    var days = rows.filter(function(x){ return ((+x.tokens)||0) > 0; }).map(function(x){ return x.day; });
-    return {
-      total: total,
-      input: Math.round(((+t.input)||0) * ratio),
-      output: output,
-      cached: cached,
-      reasoning: Math.round(((+t.reasoning)||0) * ratio),
-      requests: requests,
-      active_days: days.length,
-      first_day: days[0] || '',
-      last_day: days[days.length-1] || '',
-      avg: requests ? Math.round(total / requests) : 0,
-      cache_hit_rate: (t.input && ratio) ? +((cached * 100) / ((t.input) * ratio)).toFixed(2) : 0,
-      peak: t.peak || 0,
-      _range: range.label,
-      _note: 'Token 按所选时间段重算；input/reasoning 依全局占比推算'
-    };
-  }
-  // 返回按时间段过滤后的“数据视图”（不改动原始数据）
-  function rangedView(d, range){
-    if (!range) return d;
-    var v = {};
-    Object.keys(d).forEach(function(k){ v[k] = d[k]; });
-    v.tokens = rangeTokens(d, range);
-    v.daily = (d.daily || []).filter(function(x){ return inRange(x.day, range); });
-    // 月度：按区间内的每日数据重新聚合（保证与时间段一致）
-    var monthMap = {};
-    v.daily.forEach(function(x){
-      var m = String(x.day).slice(0, 7);
-      if (!monthMap[m]) monthMap[m] = { month:m, tokens:0, requests:0 };
-      monthMap[m].tokens += (+x.tokens)||0;
-      monthMap[m].requests += (+x.requests)||0;
-    });
-    v.monthly = Object.keys(monthMap).sort().map(function(k){ return monthMap[k]; });
-    v.conversations = (d.conversations || []).filter(function(x){ return inRange(x.created, range); });
-    return v;
+    var mode = document.querySelector('input[name=expRange]:checked').value;
+    if (mode === 'all') return {mode:mode, from:'', to:''};
+    if (mode === 'custom') return {mode:mode, from:el('expDateFrom').value, to:el('expDateTo').value};
+    var today = state.data.today.date;
+    if (mode === 'month') return {mode:mode, from:today.slice(0, 7) + '-01', to:today};
+    var first = new Date(today + 'T12:00:00');
+    first.setDate(first.getDate() - (mode === '7d' ? 6 : 29));
+    return {mode:mode, from:ymd(first), to:today};
   }
 
   // ---- CSV ----
@@ -1448,14 +1676,45 @@ document.querySelectorAll('#nav a').forEach(function(a){
     }
     return rows.map(function(r){ return r.map(cell).join(','); }).join('\r\n');
   }
+  function projectUsageCSV(projects){
+    var modelRows = [], toolRows = [], heatRows = [];
+    var usageRows = projects.map(function(p){
+      var project = {path:p.path, name:p.name};
+      p.models.forEach(function(m){
+        modelRows.push({path:p.path, project:p.name, ...m});
+      });
+      p.tools.forEach(function(t){
+        toolRows.push({path:p.path, project:p.name, ...t});
+      });
+      p.heatmap.forEach(function(row, weekday){
+        var record = {...project, weekday:WEEK[weekday]};
+        row.forEach(function(requests, hour){ record['hour_' + hour] = requests; });
+        heatRows.push(record);
+      });
+      return {...project, workspace_registered:p.workspace_registered, ...p.tokens, tool_calls:p.tool_calls};
+    });
+    return [
+      blockToCsv('项目用量', usageRows),
+      blockToCsv('项目实际调用模型', modelRows),
+      blockToCsv('项目工具调用', toolRows),
+      blockToCsv('项目请求热力图', heatRows)
+    ];
+  }
   function buildCSV(sel, v){
-    var blocks = [];
+    var blocks = [blockToCsv('日期范围', v.range)];
     sel.forEach(function(key){
       var p = PARTS[key]; if (!p) return;
       p.fields.forEach(function(f){
         if (v[f] === undefined) return;
-        var subTitle = p.fields.length > 1 ? (p.title + ' · ' + f) : p.title;
-        blocks.push(blockToCsv(subTitle, v[f]));
+        if (f === 'project_usage'){
+          blocks.push.apply(blocks, projectUsageCSV(v[f]));
+        } else if (f === 'project_coverage'){
+          var coverage = Object.entries(v[f]).map(function(entry){ return {metric:entry[0], ...entry[1]}; });
+          blocks.push(blockToCsv('项目归属覆盖率', coverage));
+        } else {
+          var subTitle = p.fields.length > 1 ? (p.title + ' · ' + f) : p.title;
+          blocks.push(blockToCsv(subTitle, v[f]));
+        }
       });
     });
     return '\uFEFF' + blocks.join('\r\n\r\n'); // BOM 保证 Excel 中文不乱码
@@ -1466,11 +1725,11 @@ document.querySelectorAll('#nav a').forEach(function(a){
       var p = PARTS[key]; if (!p) return;
       p.fields.forEach(function(f){ if (v[f] !== undefined) out[f] = v[f]; });
     });
-    var d = state.data;
     return JSON.stringify({
-      app:(d.meta&&d.meta.app)||'WorkBuddy Dashboard',
+      app:v.meta.app,
+      edition:v.meta.edition,
       exported_at:new Date().toISOString(),
-      range: range ? { mode:range.mode, from:range.start, to:range.end, label:range.label } : { mode:'all' },
+      range: {...range, label:dateRangeLabel(range)},
       data:out
     }, null, 2);
   }
@@ -1490,23 +1749,34 @@ document.querySelectorAll('#nav a').forEach(function(a){
     return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds());
   }
 
-  el('expGo').addEventListener('click', function(){
+  el('expGo').addEventListener('click', async function(){
     var sel = subCks.filter(function(c){ return c.checked; }).map(function(c){ return c.value; });
     if (!sel.length){ toast('请至少选择一项数据'); return; }
     var range = resolveRange();
-    // 校验自定义日期
-    if (range && range.mode === 'custom'){
-      if (range.start && range.end && range.start > range.end){ toast('开始日期不能晚于结束日期'); return; }
+    if (range.from && range.to && range.from > range.to){
+      toast('开始日期不能晚于结束日期');
+      return;
     }
-    var v = rangedView(state.data, range);
-    var fmt = (document.querySelector('input[name=expFmt]:checked')||{}).value || 'csv';
-    var base = 'workbuddy-dashboard-' + EDITION + '-' + stamp() + (range ? '-' + (range.start||'start') + '_' + (range.end||'end') : '');
-    var ok = fmt === 'json'
-      ? download(buildJSON(sel, v, range), base + '.json', 'application/json;charset=utf-8')
-      : download(buildCSV(sel, v),         base + '.csv',  'text/csv;charset=utf-8');
-    close();
-    var scope = range ? (' · ' + range.label) : '';
-    toast(ok ? ('已导出 ' + sel.length + ' 个部分 · ' + fmt.toUpperCase() + scope) : '导出失败，请检查浏览器下载权限');
+    var edition = EDITION;
+    var fmt = document.querySelector('input[name=expFmt]:checked').value;
+    var button = el('expGo');
+    button.disabled = true;
+    try {
+      var snapshot = range.from || range.to ? state.projectData : state.data;
+      var v = snapshot.meta.edition === edition && snapshot.range.from === range.from && snapshot.range.to === range.to
+        ? snapshot : await fetchStats(edition, range);
+      var suffix = range.from || range.to ? '-' + (range.from || 'start') + '_' + (range.to || 'end') : '';
+      var base = 'workbuddy-dashboard-' + edition + '-' + stamp() + suffix;
+      var ok = fmt === 'json'
+        ? download(buildJSON(sel, v, range), base + '.json', 'application/json;charset=utf-8')
+        : download(buildCSV(sel, v), base + '.csv', 'text/csv;charset=utf-8');
+      if (ok) close();
+      toast(ok ? '已导出 ' + fmt.toUpperCase() + ' · ' + dateRangeLabel(range) : '导出失败，请检查浏览器下载权限');
+    } catch (err) {
+      toast('导出失败，' + err.message);
+    } finally {
+      button.disabled = false;
+    }
   });
 })();
 })();
