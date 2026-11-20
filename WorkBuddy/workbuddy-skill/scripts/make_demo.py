@@ -30,6 +30,15 @@ TITLES = ["季度市场分析报告", "产品需求梳理", "竞品调研与对�
           "客户反馈整理", "接口联调排查", "营销活动策划", "知识库构建"]
 STATUSES = ["completed"] * 7 + ["error"] * 1 + ["working"] * 1 + ["cancelled"] * 1
 
+# 示例包括同名目录、未登记目录、缺少目录、已删除会话及多次追踪。
+PROJECT_PATHS = {
+    0: "/Users/demo/Projects/project-01",
+    1: "/Users/demo/Archive/project-01",
+    2: None,
+}
+REGISTERED = ["/Users/demo/Projects/project-%02d" % i for i in (1, 2, 4, 7)]
+TRACE_SESSIONS = {0: 0, 1: 1, 2: 0, 3: 2, 4: 31, 5: 4, 6: 6, 7: 7}
+
 
 def pick(pairs):
     r = random.random()
@@ -72,19 +81,23 @@ def build_db():
         used = random.randint(20000, 260000)
         size = random.choice([168000, 200000, 300000])
         credits = {pick(MODELS): round(random.uniform(0.5, 40), 2) for _ in range(random.randint(1, 4))}
+        cwd = "/Users/demo/Projects/project-%02d" % random.randint(1, 8)
         con.execute("INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
-            sid, "/Users/demo/Projects/project-%02d" % random.randint(1, 8), "demo-user",
+            sid, PROJECT_PATHS.get(i, cwd), "demo-user",
             random.choice(TITLES), None, random.choice(STATUSES),
             int(created.timestamp() * 1000), int(updated.timestamp() * 1000),
-            int(updated.timestamp() * 1000), 0, 0, "local",
+            int(updated.timestamp() * 1000), int(updated.timestamp() * 1000) if i == 31 else 0, 0, "local",
             1 if random.random() < 0.1 else 0, "craft", pick(MODELS), None))
+        credit_json = json.dumps({pick_model: 0 for pick_model in credits} if i == 1 else credits)
         con.execute("INSERT INTO session_usage VALUES(?,?,?,?,?)", (
-            sid, used, size, int(updated.timestamp() * 1000), json.dumps(credits)))
+            sid, used, 0 if i == 2 else size, int(updated.timestamp() * 1000),
+            None if i == 2 else credit_json))
 
     for i in range(12):
         t = base + timedelta(days=i * 3)
         con.execute("INSERT INTO workspaces VALUES(?,?)", (
-            "/Users/demo/WorkBuddy/session-%04d" % (1000 + i * 7), int(t.timestamp() * 1000)))
+            REGISTERED[i] if i < len(REGISTERED) else "/Users/demo/WorkBuddy/session-%04d" % (1000 + i * 7),
+            int(t.timestamp() * 1000)))
 
     for i, name in enumerate(SKILLS):
         con.execute("INSERT INTO local_skills VALUES(?,?,?,?,?,?,?,?,?,?,?)", (
@@ -159,6 +172,16 @@ def build_traces():
         lines.append({"type": "trace_end", "trace": {
             "traceId": tid, "startedAt": iso(start), "endedAt": iso(end),
             "status": st, "totalTokens": sum(random.randint(1000, 50000) for _ in range(n_gen))}})
+
+        if t in TRACE_SESSIONS:
+            session_id = "demo-%03d" % TRACE_SESSIONS[t]
+            if t % 2:
+                lines[-1]["trace"]["sessionId"] = session_id
+            else:
+                lines.insert(-1, {"type": "trace_update", "trace": {"traceId": tid, "sessionId": session_id}})
+        if t == 0:
+            lines.insert(-1, next(event for event in lines
+                                  if event["type"] == "span_end" and event["span"]["type"] == "generation"))
 
         with open(os.path.join(TRACES, "trace_%s.jsonl" % tid), "w", encoding="utf-8") as f:
             for line in lines:
