@@ -36,6 +36,7 @@ traces/*.jsonl 仅只读流式解析。
 
 import glob
 import json
+import math
 import os
 import signal
 import sqlite3
@@ -43,8 +44,10 @@ import sys
 import threading
 import time
 import traceback
+from collections import defaultdict
 import webbrowser
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from pathlib import PurePosixPath, PureWindowsPath
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from urllib.request import pathname2url
@@ -265,9 +268,8 @@ def fmt_dt(s):
     return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
 
 
-def day_key(s):
-    dt = to_local_dt(s)
-    return dt.strftime("%Y-%m-%d") if dt else ""
+def in_date_range(day, start, end):
+    return bool(day) and (not start or start <= day) and (not end or day <= end)
 
 
 # ---------------------------------------------------------------- traces 采集
@@ -284,139 +286,135 @@ def _tr_state(edition):
         return st
 
 
-def _empty_traces():
-    return {
-        "tokens": {"total": 0, "input": 0, "output": 0, "cached": 0, "reasoning": 0,
-                   "requests": 0, "peak": 0, "credits": 0.0},
-        "daily": {}, "monthly": {}, "models": {},
-        "tools": {}, "heatmap": [[0] * 24 for _ in range(7)],
-        "tool_daily": {},
-        "trace_status": {"ok": 0, "error": 0, "running": 0},
-        "trace_count": 0, "questions": 0,
-    }
-
-
 def scan_traces(traces_dir):
-    """流式只读解析 traces/*.jsonl，聚合 token / 模型 / 工具 / 时段。"""
-    out = _empty_traces()
-    if not traces_dir or not os.path.isdir(traces_dir):
-        return out
-    files = glob.glob(os.path.join(traces_dir, "**", "*.jsonl"), recursive=True)
-    out["trace_count"] = len(files)
+    """只保留统计所需的事件字段，并读取追踪与会话的精确关联。"""
+    files = glob.glob(os.path.join(traces_dir, "**", "*.jsonl"), recursive=True) if traces_dir else []
+    trace_status = {"ok": 0, "error": 0, "running": 0}
     status_map = {}
+    trace_sessions = {}
     seen_gen = set()
+    generations = []
+    tools = []
 
     for f in files:
         try:
             fh = open(f, "r", encoding="utf-8", errors="ignore")
-        except Exception:
+        except OSError:
             continue
         with fh:
             for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
                 try:
-                    o = json.loads(line)
-                except Exception:
+                    event = json.loads(line)
+                except ValueError:
                     continue
-                etype = o.get("type")
-
-                # trace 级状态（以 traceId 记录，后写覆盖前写）
-                if etype in ("trace_start", "trace_end", "trace"):
-                    t = o.get("trace") or {}
-                    tid = t.get("traceId")
-                    if tid and t.get("status"):
-                        status_map[tid] = t.get("status")
+                if not isinstance(event, dict):
                     continue
 
-                sp = o.get("span")
-                if not sp:
+                etype = event.get("type")
+                trace = event.get("trace")
+                if isinstance(trace, dict):
+                    trace_id = trace.get("traceId")
+                    session_id = trace.get("sessionId")
+                    if trace_id and isinstance(session_id, str) and session_id:
+                        trace_sessions[trace_id] = session_id
+                    if etype in ("trace_start", "trace_end", "trace") and trace_id and trace.get("status"):
+                        status_map[trace_id] = trace["status"]
+
+                span = event.get("span")
+                if etype != "span_end" or not isinstance(span, dict):
                     continue
-                # 只处理 span_end，避免 span_start 重复计数
-                if etype != "span_end":
+                stype = span.get("type")
+                if stype not in ("generation", "function"):
                     continue
-                stype = sp.get("type")
-                started = sp.get("startedAt", "")
-                dk = day_key(started)
-                dt = to_local_dt(started)
-
-                # generation：usage 在 toolOutput（JSON 数组）
-                if stype == "generation":
-                    sid = sp.get("spanId")
-                    if sid in seen_gen:
-                        continue
-                    raw = sp.get("toolOutput") or ""
-                    if not raw:
-                        continue
-                    try:
-                        arr = json.loads(raw) if isinstance(raw, str) else raw
-                    except Exception:
-                        continue
-                    if not isinstance(arr, list):
-                        continue
-                    for item in arr:
-                        if not isinstance(item, dict):
-                            continue
-                        usage = item.get("usage") or {}
-                        if not usage:
-                            continue
-                        seen_gen.add(sid)
-                        pt = num(usage.get("prompt_tokens"))
-                        ct = num(usage.get("completion_tokens"))
-                        tt = num(usage.get("total_tokens")) or (pt + ct)
-                        ptd = usage.get("prompt_tokens_details") or {}
-                        ctd = usage.get("completion_tokens_details") or {}
-                        cached = num(ptd.get("cached_tokens")) if isinstance(ptd, dict) else 0
-                        reasoning = num(ctd.get("reasoning_tokens")) if isinstance(ctd, dict) else 0
-                        model = str(item.get("model") or "unknown")
-
-                        tk = out["tokens"]
-                        tk["total"] += tt
-                        tk["input"] += pt
-                        tk["output"] += ct
-                        tk["cached"] += cached
-                        tk["reasoning"] += reasoning
-                        tk["requests"] += 1
-                        if tt > tk["peak"]:
-                            tk["peak"] = tt
-
-                        out["daily"].setdefault(dk, {"tokens": 0, "requests": 0, "output": 0, "cached": 0})
-                        dd = out["daily"][dk]
-                        dd["tokens"] += tt
-                        dd["requests"] += 1
-                        dd["output"] += ct
-                        dd["cached"] += cached
-
-                        if dk:
-                            mk = dk[:7]
-                            mm = out["monthly"].setdefault(mk, {"tokens": 0, "requests": 0})
-                            mm["tokens"] += tt
-                            mm["requests"] += 1
-
-                        m = out["models"].setdefault(model, {"tokens": 0, "requests": 0,
-                                                              "input": 0, "output": 0, "cached": 0})
-                        m["tokens"] += tt
-                        m["requests"] += 1
-                        m["input"] += pt
-                        m["output"] += ct
-                        m["cached"] += cached
-
-                        if dt is not None:
-                            out["heatmap"][dt.weekday()][dt.hour] += 1
-                    continue
-
-                # function：真实工具调用（排除 mcp_tools 这类 custom）
+                trace_id = span.get("traceId")
+                dt = to_local_dt(span.get("startedAt"))
+                day = dt.date().isoformat() if dt else ""
                 if stype == "function":
-                    name = sp.get("name") or sp.get("toolName") or "unknown"
-                    out["tools"][name] = out["tools"].get(name, 0) + 1
-                    if dk:
-                        out["tool_daily"][dk] = out["tool_daily"].get(dk, 0) + 1
+                    tools.append((trace_id, day, str(span.get("name") or span.get("toolName") or "unknown")))
+                    continue
 
-    for st in status_map.values():
-        key = st if st in out["trace_status"] else "running"
-        out["trace_status"][key] += 1
-    return out
+                span_id = span.get("spanId")
+                if span_id in seen_gen:
+                    continue
+                raw = span.get("toolOutput")
+                try:
+                    items = json.loads(raw) if isinstance(raw, str) else raw
+                except ValueError:
+                    continue
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    usage = item.get("usage") if isinstance(item, dict) else None
+                    if not isinstance(usage, dict) or not usage:
+                        continue
+                    if span_id:
+                        seen_gen.add(span_id)
+                    pt = num(usage.get("prompt_tokens"))
+                    ct = num(usage.get("completion_tokens"))
+                    tt = num(usage.get("total_tokens")) or (pt + ct)
+                    ptd = usage.get("prompt_tokens_details")
+                    ctd = usage.get("completion_tokens_details")
+                    cached = num(ptd.get("cached_tokens")) if isinstance(ptd, dict) else 0
+                    reasoning = num(ctd.get("reasoning_tokens")) if isinstance(ctd, dict) else 0
+                    model = str(item.get("model") or "unknown")
+                    hour = (dt.weekday(), dt.hour) if dt else None
+                    generations.append((trace_id, day, model, tt, pt, ct, cached, reasoning, hour))
+
+    for status in status_map.values():
+        trace_status[status if status in trace_status else "running"] += 1
+    return {"generations": generations, "tools": tools, "sessions": trace_sessions,
+            "trace_count": len(files), "trace_status": trace_status}
+
+
+def summarize_usage(generations, tool_events, *, trends=False):
+    tokens = dict(total=0, input=0, output=0, cached=0, reasoning=0, requests=0, peak=0, credits=0.0)
+    models = {}
+    tools = {}
+    daily = {}
+    monthly = {}
+    heatmap = [[0] * 24 for _ in range(7)]
+    for _, day, model, total, input_tokens, output_tokens, cached, reasoning, hour in generations:
+        tokens["total"] += total
+        tokens["input"] += input_tokens
+        tokens["output"] += output_tokens
+        tokens["cached"] += cached
+        tokens["reasoning"] += reasoning
+        tokens["requests"] += 1
+        tokens["peak"] = max(tokens["peak"], total)
+
+        m = models.setdefault(model, dict(tokens=0, requests=0, input=0, output=0, cached=0))
+        m["tokens"] += total
+        m["requests"] += 1
+        m["input"] += input_tokens
+        m["output"] += output_tokens
+        m["cached"] += cached
+
+        if hour is not None:
+            weekday, slot = hour
+            heatmap[weekday][slot] += 1
+        if trends and day:
+            d = daily.setdefault(day, dict(tokens=0, requests=0, output=0, cached=0))
+            d["tokens"] += total
+            d["requests"] += 1
+            d["output"] += output_tokens
+            d["cached"] += cached
+            m = monthly.setdefault(day[:7], dict(tokens=0, requests=0))
+            m["tokens"] += total
+            m["requests"] += 1
+
+    for _, _, name in tool_events:
+        tools[name] = tools.get(name, 0) + 1
+    tokens["avg"] = round(tokens["total"] / tokens["requests"]) if tokens["requests"] else 0
+    tokens["cache_hit_rate"] = round(tokens["cached"] * 100.0 / tokens["input"], 2) if tokens["input"] else 0.0
+    return {
+        "tokens": tokens,
+        "models": sorted((dict(name=k, **v) for k, v in models.items()),
+                         key=lambda x: x["tokens"], reverse=True),
+        "tools": sorted((dict(name=k, count=v) for k, v in tools.items()),
+                        key=lambda x: x["count"], reverse=True),
+        "tool_calls": sum(tools.values()), "heatmap": heatmap,
+        "daily": daily, "monthly": monthly,
+    }
 
 
 def traces_snapshot(traces_dir, edition):
@@ -460,28 +458,37 @@ def collect_sessions(con):
     sql = """
         SELECT s.id, s.title, s.custom_title, s.model, s.mode, s.status,
                s.created_at, s.updated_at, s.last_activity_at, s.is_background_automation,
-               s.source_mode, s.cwd,
-               u.used, u.size, u.credit_json
+               s.cwd, u.used, u.size, u.credit_json
         FROM sessions s
-        LEFT JOIN session_usage u ON u.session_id = s.id
+        LEFT JOIN session_usage u ON u.rowid = (
+            SELECT rowid FROM session_usage
+            WHERE session_id = s.id
+            ORDER BY updated_at DESC, rowid DESC LIMIT 1
+        )
         WHERE s.deleted_at IS NULL OR s.deleted_at = 0
         ORDER BY s.last_activity_at DESC
     """
-    raw = rows(con, sql)
     out = []
-    for r in raw:
+    for r in rows(con, sql):
         title = r.get("custom_title") or r.get("title") or "(无标题会话)"
-        credit = 0.0
+        credit = None
         try:
-            cj = r.get("credit_json")
-            if cj:
-                obj = json.loads(cj) if isinstance(cj, str) else cj
-                if isinstance(obj, dict):
-                    credit = round(sum(float(v) for v in obj.values()), 2)
-        except Exception:
+            obj = json.loads(r["credit_json"]) if r["credit_json"] else None
+            if isinstance(obj, dict):
+                total = math.fsum(float(v) for v in obj.values())
+                if math.isfinite(total):
+                    credit = total
+        except (ValueError, TypeError, OverflowError):
             pass
+
+        cwd = r["cwd"]
+        project_path = None
+        if isinstance(cwd, str) and "\x00" not in cwd:
+            if PurePosixPath(cwd).is_absolute() or PureWindowsPath(cwd).is_absolute():
+                project_path = cwd
+        used, size = num(r["used"], None), num(r["size"], None)
         out.append({
-            "id": r.get("id", ""),
+            "id": r["id"],
             "title": str(title)[:120],
             "model": r.get("model") or "",
             "mode": r.get("mode") or "",
@@ -489,10 +496,13 @@ def collect_sessions(con):
             "created": fmt_dt(r.get("created_at")),
             "updated": fmt_dt(r.get("updated_at")),
             "last_activity": fmt_dt(r.get("last_activity_at")),
-            "used": num(r.get("used")),
-            "size": num(r.get("size")),
+            "used": used,
+            "size": size,
+            "context_percent": round(100.0 * used / size, 2)
+                if used is not None and used >= 0 and size is not None and size > 0 else None,
             "credit": credit,
-            "cwd": str(r.get("cwd") or "")[:160],
+            "cwd": cwd or "",
+            "project_path": project_path,
             "background": bool(r.get("is_background_automation")),
         })
     return out
@@ -542,9 +552,87 @@ def collect_skills(con):
 
 
 def collect_workspaces(con):
-    raw = rows(con, "SELECT path, last_opened_at FROM workspaces ORDER BY last_opened_at DESC LIMIT 50")
-    return [{"path": str(r.get("path") or "")[:200],
+    raw = rows(con, "SELECT path, last_opened_at FROM workspaces ORDER BY last_opened_at DESC")
+    return [{"path": r.get("path") or "",
              "last_opened": fmt_dt(r.get("last_opened_at"))} for r in raw]
+
+
+def project_label(path, registered_paths, missing_name):
+    if path is None:
+        return {"path": None, "name": missing_name, "workspace_registered": False}
+    if path.startswith("/") and not path.startswith("//"):
+        name = PurePosixPath(path).name
+    else:
+        parsed = PureWindowsPath(path)
+        name = parsed.name or parsed.drive.rsplit("\\", 1)[-1]
+    return {"path": path, "name": name or path, "workspace_registered": path in registered_paths}
+
+
+def project_overview(sessions, registered_paths):
+    groups = {}
+    for session in sessions:
+        groups.setdefault(session["project_path"], []).append(session)
+    projects = []
+    for path, members in groups.items():
+        statuses = {}
+        models = {}
+        for session in members:
+            status = session["status"] or "unknown"
+            model = session["model"] or "unknown"
+            statuses[status] = statuses.get(status, 0) + 1
+            models[model] = models.get(model, 0) + 1
+        credits = [s["credit"] for s in members if s["credit"] is not None]
+        contexts = [s for s in members if s["context_percent"] is not None]
+        used = sum(s["used"] for s in contexts)
+        size = sum(s["size"] for s in contexts)
+        projects.append({
+            **project_label(path, registered_paths, "无有效工作目录"),
+            "sessions": len(members),
+            "statuses": statuses,
+            "background_sessions": sum(s["background"] for s in members),
+            "last_activity": max(s["last_activity"] for s in members),
+            "session_models": models,
+            "context_used": used if contexts else None,
+            "context_size": size if contexts else None,
+            "context_percent": round(100.0 * used / size, 2) if contexts else None,
+            "context_sessions": len(contexts),
+            "credits": round(math.fsum(credits), 2) if credits else None,
+            "credit_sessions": len(credits),
+        })
+    return sorted(projects, key=lambda p: (-p["sessions"], p["path"] or ""))
+
+
+def project_usage(generations, tools, trace_sessions, session_paths, registered_paths, global_usage):
+    trace_paths = {tid: session_paths.get(sid) for tid, sid in trace_sessions.items()}
+    groups = defaultdict(lambda: ([], []), {None: ([], [])})
+    for event in generations:
+        groups[trace_paths.get(event[0])][0].append(event)
+    for event in tools:
+        groups[trace_paths.get(event[0])][1].append(event)
+
+    projects = []
+    for path, (project_generations, project_tools) in groups.items():
+        usage = summarize_usage(project_generations, project_tools)
+        projects.append({
+            **project_label(path, registered_paths, "未归属项目"),
+            "tokens": usage["tokens"],
+            "models": usage["models"],
+            "tools": usage["tools"],
+            "tool_calls": usage["tool_calls"],
+            "heatmap": usage["heatmap"],
+        })
+    projects.sort(key=lambda p: (p["path"] is None, -p["tokens"]["total"], p["path"] or ""))
+    unassigned = projects[-1]
+    coverage = {}
+    for key, total, unattributed in (
+        ("requests", global_usage["tokens"]["requests"], unassigned["tokens"]["requests"]),
+        ("tokens", global_usage["tokens"]["total"], unassigned["tokens"]["total"]),
+        ("tool_calls", global_usage["tool_calls"], unassigned["tool_calls"]),
+    ):
+        attributed = total - unattributed
+        coverage[key] = {"attributed": attributed, "total": total,
+                         "percent": round(100.0 * attributed / total, 2) if total else None}
+    return projects, coverage
 
 
 def fill_daily(daily_map):
@@ -561,15 +649,11 @@ def fill_daily(daily_map):
     except Exception:
         return [dict(v, day=k) for k, v in sorted(daily_map.items())]
     out = []
-    cur = start
-    guard = 0
-    while cur <= end and guard < 800:
-        k = cur.strftime("%Y-%m-%d")
+    for offset in range((end - start).days + 1):
+        k = (start.date() + timedelta(days=offset)).isoformat()
         v = daily_map.get(k) or {"tokens": 0, "requests": 0, "output": 0, "cached": 0}
         out.append({"day": k, "tokens": v["tokens"], "requests": v["requests"],
                     "output": v["output"], "cached": v["cached"]})
-        cur += timedelta(days=1)
-        guard += 1
     return out
 
 
@@ -582,79 +666,75 @@ def day_span(first_day, last_day):
 
 
 # ---------------------------------------------------------------- 汇总
-def compute_stats(edition=None):
+def compute_stats(edition=None, start="", end=""):
     edition = normalize_edition(edition)
     db_path, traces_dir, source = discover_sources(edition)
     _last_source[edition] = source
     today = datetime.now().strftime("%Y-%m-%d")
 
-    con = ro_connect(db_path)
     tr, traces_age = traces_snapshot(traces_dir, edition)
+    con = ro_connect(db_path)
+    try:
+        all_sessions = collect_sessions(con) if con else []
+        skills, skill_stats = collect_skills(con)
+        workspaces = collect_workspaces(con) if con else []
+    finally:
+        if con:
+            con.close()
 
-    payload = {
-        "tokens": {}, "counts": {}, "daily": [], "monthly": [], "models": [],
-        "tools": [], "heatmap": tr["heatmap"], "conversations": [],
-        "skills": [], "skill_stats": {"total": 0, "enabled": 0, "invocable": 0,
-                                      "by_source": {}, "by_type": {}},
-        "workspaces": [], "today": {"date": today, "tokens": 0, "requests": 0,
-                                    "tool_calls": 0, "sessions": 0},
-        "meta": {},
-    }
+    sessions = all_sessions
+    generations = tr["generations"]
+    tools = tr["tools"]
+    if start or end:
+        sessions = [s for s in all_sessions if in_date_range(s["created"][:10], start, end)]
+        generations = [event for event in generations if in_date_range(event[1], start, end)]
+        tools = [event for event in tools if in_date_range(event[1], start, end)]
+    registered_paths = {w["path"] for w in workspaces}
+    session_paths = {s["id"]: s["project_path"] for s in all_sessions}
+    usage = summarize_usage(generations, tools, trends=True)
+    projects = project_overview(sessions, registered_paths)
+    usages, coverage = project_usage(generations, tools, tr["sessions"], session_paths,
+                                     registered_paths, usage)
 
-    sessions = collect_sessions(con) if con else []
-    skills, skill_stats = collect_skills(con) if con else ([], payload["skill_stats"])
-    workspaces = collect_workspaces(con) if con else []
-    payload["conversations"] = sessions
-    payload["skills"] = skills
-    payload["skill_stats"] = skill_stats
-    payload["workspaces"] = workspaces
-
-    # token 汇总（来自 traces）
-    tk = dict(tr["tokens"])
-    daily_list = fill_daily(tr["daily"])
-    days_with_data = [d["day"] for d in daily_list if d["tokens"] > 0]
+    tk = usage["tokens"]
+    daily_list = fill_daily(usage["daily"])
+    days_with_data = sorted(day for day, d in usage["daily"].items() if d["tokens"] > 0)
     tk["active_days"] = len(days_with_data)
     tk["first_day"] = days_with_data[0] if days_with_data else ""
     tk["last_day"] = days_with_data[-1] if days_with_data else ""
     tk["span_days"] = day_span(tk["first_day"], tk["last_day"])
-    tk["avg"] = int(round(tk["total"] / tk["requests"])) if tk["requests"] else 0
-    tk["cache_hit_rate"] = round(tk["cached"] * 100.0 / tk["input"], 2) if tk["input"] else 0.0
-    payload["tokens"] = tk
 
-    payload["daily"] = daily_list
-    payload["monthly"] = [{"month": k, "tokens": v["tokens"], "requests": v["requests"]}
-                          for k, v in sorted(tr["monthly"].items())]
-    payload["models"] = sorted(
-        [{"name": k, **v} for k, v in tr["models"].items()],
-        key=lambda x: x["tokens"], reverse=True)
-    payload["tools"] = sorted(
-        [{"name": k, "count": v} for k, v in tr["tools"].items()],
-        key=lambda x: x["count"], reverse=True)
-
-    # counts
     status = tr["trace_status"]
-    payload["counts"] = {
-        "sessions": len(sessions),
-        "traces": tr["trace_count"],
-        "traces_ok": status.get("ok", 0),
-        "traces_error": status.get("error", 0),
-        "tool_calls": sum(tr["tools"].values()),
-        "models": len(payload["models"]),
-        "tools": len(payload["tools"]),
-        "skills": skill_stats["total"],
-        "workspaces": len(workspaces),
-        "active_days": tk["active_days"],
-        "questions": tr["questions"] or status.get("ok", 0),
-    }
-
-    # 今日
-    td = next((d for d in daily_list if d["day"] == today), None)
-    payload["today"] = {
-        "date": today,
-        "tokens": td["tokens"] if td else 0,
-        "requests": td["requests"] if td else 0,
-        "tool_calls": tr["tool_daily"].get(today, 0),
-        "sessions": sum(1 for s in sessions if s["created"].startswith(today)),
+    payload = {
+        "range": {"from": start, "to": end},
+        "tokens": tk,
+        "daily": daily_list,
+        "monthly": [dict(month=k, **v) for k, v in sorted(usage["monthly"].items())],
+        "models": usage["models"],
+        "tools": usage["tools"],
+        "heatmap": usage["heatmap"],
+        "conversations": sessions,
+        "projects": projects,
+        "project_usage": usages,
+        "project_coverage": coverage,
+        "skills": skills,
+        "skill_stats": skill_stats,
+        "workspaces": workspaces[:50],
+        "counts": {
+            "sessions": len(sessions), "traces": tr["trace_count"],
+            "traces_ok": status["ok"], "traces_error": status["error"],
+            "tool_calls": usage["tool_calls"], "models": len(usage["models"]),
+            "tools": len(usage["tools"]), "skills": skill_stats["total"],
+            "workspaces": min(50, len(workspaces)), "active_days": tk["active_days"],
+            "questions": status["ok"],
+        },
+        "today": {
+            "date": today,
+            "tokens": sum(event[3] for event in tr["generations"] if event[1] == today),
+            "requests": sum(event[1] == today for event in tr["generations"]),
+            "tool_calls": sum(event[1] == today for event in tr["tools"]),
+            "sessions": sum(s["created"].startswith(today) for s in all_sessions),
+        },
     }
 
     db_mtime = ""
@@ -676,8 +756,6 @@ def compute_stats(edition=None):
         "app": APP_NAME, "version": VERSION,
     }
 
-    if con:
-        con.close()
     return payload
 
 
@@ -711,8 +789,14 @@ def _cache_hit(age, edition):
     return out
 
 
-def get_stats(edition=None):
+def get_stats(edition=None, start="", end=""):
     edition = normalize_edition(edition)
+    if start or end:
+        try:
+            return compute_stats(edition, start, end)
+        except Exception:
+            log(traceback.format_exc(limit=2))
+            return {"error": "无法读取所选日期的统计数据"}
     st = _cache_state(edition)
     age = time.time() - st["ts"]
     hit = _cache_hit(age, edition)
@@ -829,7 +913,18 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json; charset=utf-8")
                 return
             edition = normalize_edition((qs.get("edition") or [""])[0])
-            payload = get_stats(edition)
+            start = qs.get("from", [""])[0]
+            end = qs.get("to", [""])[0]
+            try:
+                if any(value and date.fromisoformat(value).isoformat() != value for value in (start, end)):
+                    raise ValueError()
+                if start and end and start > end:
+                    raise ValueError()
+            except ValueError:
+                self._send(400, json.dumps({"error": "日期范围无效"}, ensure_ascii=False),
+                           "application/json; charset=utf-8")
+                return
+            payload = get_stats(edition, start, end)
             self._send(200, json.dumps(payload, ensure_ascii=False), "application/json; charset=utf-8")
             return
 
